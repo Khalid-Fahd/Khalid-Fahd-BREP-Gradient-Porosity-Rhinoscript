@@ -1,0 +1,76 @@
+Option Explicit
+'Script written by Fahd Khalid
+'Script copyrighted by <insert company name>
+'Script version Monday, 26 May 2025 00:35:37
+
+Call Main()
+Sub Main()
+	Dim i, j, strObject, arrBox, Line1, arrIntersectPoint, dblRadius, dblpor, dblpor1, dblpor2
+	'Ask user to select an object and get its ID as strObject
+	strObject = Rhino.GetObject("Select a solid object")
+	'if there is no BREP object, exit
+	If IsNull(strObject) Or (Rhino.IsSurface(strObject) = False And Rhino.IsPolysurface(strObject) = False) Then Exit Sub
+	'Getting fiber radius and porosity values
+	dblradius = Rhino.GetReal("enter the fiber radius", 0.05)
+	dblpor1 = Rhino.GetReal("enter the proximal porosity in %", 40, 1, 99)
+	dblpor2 = Rhino.GetReal("enter the distal porosity in %", 70, dblpor1, 99)
+	
+	'get the 3D bounding box of the Surface
+	arrBox = Rhino.BoundingBox(strObject)
+	Dim OriginalBox: OriginalBox = arrBox
+	'Slicing the solid into intz 'Z-layers'
+	Dim intz, intx, inty, startpt, endpt
+	intz = 1 + (OriginalBox(4)(2) - OriginalBox(0)(2)) / (2 * dblradius)
+	
+	For i = 0 To intz
+		Dim intdistz: intdistz = ((i - 1) * 2 * dblradius) + dblradius
+		arrBox(0)(2) = OriginalBox(0)(2) + intdistz
+		arrbox(1)(2) = OriginalBox(1)(2) + intdistz
+		arrbox(3)(2) = OriginalBox(3)(2) + intdistz
+		'Implementing the porosity gradient
+		dblpor = dblpor1 + ((i / intz) * (dblpor2 - dblpor1))
+		'Converting the porosity value (in %) to 1D interfiber spacing
+		dblpor = (2 * dblradius * dblpor) / (100 - dblpor)
+		'Dividing each Z-layer/slice inty 'Y-domains', and intx 'X-domains'
+		intx = 1 + ((OriginalBox(1)(0) - OriginalBox(0)(0)) / ((2 * dblradius) + dblpor))
+		inty = 1 + ((OriginalBox(3)(1) - OriginalBox(0)(1)) / ((2 * dblradius) + dblpor))
+		If i Mod 2 = 1 Then
+			For j = 0 To intx
+				Dim intdistx: intdistx = (((j - 1) * dblradius) + ((j - 1) * dblpor) + dblradius)
+				arrBox(0)(0) = OriginalBox(0)(0) + intdistx
+				arrBox(0)(1) = OriginalBox(0)(1)
+				arrBox(3)(0) = OriginalBox(3)(0) + intdistx
+				Line1 = Rhino.AddLine(arrBox(0), arrBox(3))
+				arrIntersectPoint = Rhino.CurveSurfaceIntersection(Line1, strObject)
+				Rhino.DeleteObject Line1
+				If IsArray(arrIntersectPoint) Then 'Excluding non-intersects
+					If arrIntersectPoint(0, 0) = 1 Then 'Checking to make sure intersection is a point intersection
+						startpt = arrIntersectPoint(0, 1)
+						endpt = arrIntersectPoint(Ubound(arrIntersectPoint, 1), 1)
+						Call Rhino.AddCylinder(startpt, endpt, dblRadius)
+					End If
+				End If
+			Next
+		Else
+			For j = 0 To inty + dblradius
+				Dim intdisty: intdisty = (((j - 1) * dblradius) + ((j - 1) * dblpor) + dblradius)
+				arrBox(0)(1) = OriginalBox(0)(1) + intdisty
+				arrBox(0)(0) = OriginalBox(0)(0)
+				arrBox(1)(1) = OriginalBox(1)(1) + intdisty
+				Line1 = Rhino.AddLine(arrBox(0), arrBox(1))
+				arrIntersectPoint = Rhino.CurveSurfaceIntersection(Line1, strObject)
+				Rhino.DeleteObject Line1
+				If IsArray(arrIntersectPoint) Then 
+					If arrIntersectPoint(0, 0) = 1 Then 
+						startpt = arrIntersectPoint(0, 1)
+						endpt = arrIntersectPoint(Ubound(arrIntersectPoint, 1), 1)
+						Call Rhino.AddCylinder(startpt, endpt, dblRadius)
+					End If
+				End If
+			Next
+		End If
+		
+	Next
+	Rhino.DeleteObject StrObject
+
+End Sub
